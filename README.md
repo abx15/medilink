@@ -194,4 +194,9 @@ ISC
 
 ## 👥 Contributors
 
-MedLink Development Team
+MedLink Development Team:
+
+- **Arun Kumar Bind** – 💡 Idea, 🖥️ Developer, MERN stack, system architecture  
+- **Amit Kumar Bind** – 📊 Research & Marketing, user flow analysis, hackathon strategy  
+- **Rajan Yadav** – 🎨 Design & Graphics, UI/UX, video editing, branding
+
