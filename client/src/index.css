@@ -4,9 +4,22 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --primary: 221.2 83.2% 53.3%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.4);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
 @layer base {
   body {
-    @apply font-body bg-slate-50 text-slate-900 antialiased;
+    @apply bg-slate-50 text-slate-900 antialiased selection:bg-primary-100 selection:text-primary-900;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
   h1,
@@ -21,11 +34,11 @@
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-6 py-3.5 rounded-2xl font-bold transition-all duration-300 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation;
   }
 
   .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700 shadow-lg shadow-primary-500/20 hover:shadow-primary-600/30;
+    @apply relative overflow-hidden bg-primary-600 text-white shadow-xl shadow-primary-200 hover:bg-primary-700 active:scale-[0.98] transition-all;
   }
 
   .btn-secondary {
@@ -33,21 +46,86 @@
   }
 
   .btn-outline {
-    @apply btn border-2 border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300;
+    @apply bg-white border-2 border-slate-100 text-slate-600 hover:border-primary-500/30 hover:text-primary-600 active:scale-[0.98] transition-all;
   }
 
-  .glass {
-    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
+  .glass-card {
+    @apply backdrop-blur-xl bg-white/70 border border-white/40 shadow-2xl shadow-slate-200/50;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-card:hover {
+    @apply border-white/60 shadow-primary-100/30 -translate-y-1;
   }
 
   .input-field {
-    @apply w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500/20 focus:border-primary-500 transition-all duration-300;
+    @apply w-full h-14 bg-white/50 border-2 border-slate-100 rounded-2xl px-6 outline-none transition-all placeholder:text-slate-400 font-medium text-slate-700 focus:border-primary-500/50 focus:bg-white;
+  }
+
+  .input-field:focus {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.1);
+  }
+
+  .nav-link {
+    @apply relative text-sm font-bold text-slate-500 hover:text-primary-600 transition-colors uppercase tracking-widest;
+  }
+
+  .nav-link::after {
+    @apply content-[''] absolute -bottom-1 left-0 w-0 h-0.5 bg-primary-500 transition-all duration-300;
+  }
+
+  .nav-link:hover::after {
+    @apply w-full;
+  }
+}
+
+@layer utilities {
+  .text-glow {
+    text-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+  }
+
+  .mask-rect-center {
+    mask-image: radial-gradient(circle, transparent 150px, black 151px);
+  }
+
+  .mobile-safe-pt {
+    padding-top: env(safe-area-inset-top, 20px);
+  }
+
+  .mobile-safe-pb {
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+  }
+
+  .smooth-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+
+  /* Lenis CSS */
+  html.lenis {
+    height: auto;
+  }
+
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+
+  .lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+  }
+
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+
+  .lenis.lenis-scrolling iframe {
+    pointer-events: none;
   }
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -68,6 +146,25 @@
   opacity: 1;
   transform: translateY(0);
   transition: opacity 500ms, transform 500ms;
+}
+
+/* Custom Animations */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+}
+
+.bg-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
 }
 
 /* Animations */

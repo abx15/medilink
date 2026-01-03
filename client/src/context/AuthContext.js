@@ -127,6 +127,18 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const resendOTP = async (data) => {
+        try {
+            const res = await API.post('/auth/resend-otp', data);
+            return res.data;
+        } catch (error) {
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to resend OTP'
+            };
+        }
+    };
+
     const logout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -147,7 +159,8 @@ export const AuthProvider = ({ children }) => {
             register,
             verifyOTP,
             requestLoginOTP,
-            loginWithOTP
+            loginWithOTP,
+            resendOTP
         }}>
             {children}
         </AuthContext.Provider>

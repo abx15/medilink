@@ -3,6 +3,7 @@ const OTPLog = require('../models/OTPLog');
 const Notification = require('../models/Notification');
 const twilio = require('twilio');
 const nodemailer = require('nodemailer');
+const { normalizePhoneNumber } = require('../utils/phoneUtils');
 
 // Initialize Twilio client (only if credentials are provided)
 let twilioClient = null;
@@ -16,10 +17,13 @@ if (process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
     emailTransporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST,
         port: parseInt(process.env.SMTP_PORT),
-        secure: false, // true for 465, false for other ports
+        secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
         auth: {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASSWORD
+        },
+        tls: {
+            rejectUnauthorized: false // Helps with some SMTP providers
         }
     });
 }
@@ -36,27 +40,30 @@ const generateOTP = () => {
  */
 const sendSMS = async (mobile, otp) => {
     try {
+        const normalizedMobile = normalizePhoneNumber(mobile);
+
         if (!twilioClient) {
-            console.log(`📱 [DEV MODE] SMS to ${mobile}: Your MedLink OTP is ${otp}. Valid for 5 minutes.`);
+            console.log(`📱 [DEV MODE - SMS] ${normalizedMobile}: Your MedLink OTP is ${otp}`);
             return {
                 success: true,
-                message: 'OTP logged (development mode - Twilio not configured)'
+                message: 'OTP logged (development mode)'
             };
         }
 
         const message = await twilioClient.messages.create({
-            body: `Your MedLink OTP is ${otp}. Valid for 5 minutes. Do not share this code.`,
+            body: `Your MedLink verification code is: ${otp}. Valid for 5 minutes.`,
             from: process.env.TWILIO_PHONE_NUMBER,
-            to: mobile
+            to: normalizedMobile
         });
 
-        console.log(`✅ SMS sent to ${mobile}: ${message.sid}`);
-        return {
-            success: true,
-            messageId: message.sid
-        };
+        console.log(`✅ SMS Sent: ${message.sid} to ${normalizedMobile}`);
+        return { success: true, messageId: message.sid };
     } catch (error) {
-        console.error(`❌ SMS Error to ${mobile}:`, error.message);
+        console.error(`❌ SMS Delivery Failed:`, {
+            error: error.message,
+            code: error.code,
+            mobile: mobile
+        });
         return { success: false, error: error.message };
     }
 };
@@ -66,27 +73,37 @@ const sendSMS = async (mobile, otp) => {
  */
 const sendWhatsApp = async (mobile, otp) => {
     try {
+        const normalizedMobile = normalizePhoneNumber(mobile);
+
         if (!twilioClient || !process.env.TWILIO_WHATSAPP_NUMBER) {
-            console.log(`📱 [DEV MODE] WhatsApp to ${mobile}: Your MedLink OTP is ${otp}. Valid for 5 minutes.`);
+            console.log(`📱 [DEV MODE - WhatsApp] ${normalizedMobile}: Your MedLink OTP is ${otp}`);
             return {
                 success: true,
-                message: 'OTP logged (development mode - Twilio/WhatsApp not configured)'
+                message: 'OTP logged (development mode)'
             };
         }
 
+        // WhatsApp requires 'whatsapp:' prefix for both from and to
+        const from = process.env.TWILIO_WHATSAPP_NUMBER.startsWith('whatsapp:')
+            ? process.env.TWILIO_WHATSAPP_NUMBER
+            : `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
+
+        const to = `whatsapp:${normalizedMobile}`;
+
         const message = await twilioClient.messages.create({
-            body: `Your MedLink OTP is ${otp}. Valid for 5 minutes. Do not share this code.`,
-            from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
-            to: `whatsapp:${mobile}`
+            body: `Your MedLink verification code is: ${otp}. Valid for 5 minutes. Do not share this code.`,
+            from: from,
+            to: to
         });
 
-        console.log(`✅ WhatsApp sent to ${mobile}: ${message.sid}`);
-        return {
-            success: true,
-            messageId: message.sid
-        };
+        console.log(`✅ WhatsApp Sent: ${message.sid} to ${to}`);
+        return { success: true, messageId: message.sid };
     } catch (error) {
-        console.error(`❌ WhatsApp Error to ${mobile}:`, error.message);
+        console.error(`❌ WhatsApp Delivery Failed:`, {
+            error: error.message,
+            code: error.code,
+            mobile: mobile
+        });
         return { success: false, error: error.message };
     }
 };
@@ -97,69 +114,50 @@ const sendWhatsApp = async (mobile, otp) => {
 const sendEmail = async (email, otp, name = 'User') => {
     try {
         if (!emailTransporter) {
-            console.log(`📧 [DEV MODE] Email to ${email}: Your MedLink OTP is ${otp}. Valid for 5 minutes.`);
+            console.log(`📧 [DEV MODE - Email] ${email}: Your MedLink OTP is ${otp}`);
             return {
                 success: true,
-                message: 'OTP logged (development mode - SMTP not configured)'
+                message: 'OTP logged (development mode)'
             };
         }
 
         const mailOptions = {
-            from: `"MedLink" <${process.env.SMTP_USER}>`,
+            from: `"MedLink Security" <${process.env.SMTP_USER}>`,
             to: email,
-            subject: 'Your MedLink OTP Code',
+            subject: `${otp} is your MedLink verification code`,
             html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-            .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-            .otp-box { background: white; border: 2px dashed #667eea; padding: 20px; text-align: center; margin: 20px 0; border-radius: 8px; }
-            .otp-code { font-size: 32px; font-weight: bold; color: #667eea; letter-spacing: 5px; }
-            .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>🏥 MedLink</h1>
-              <p>Digital Health Records & Emergency Access</p>
-            </div>
-            <div class="content">
-              <h2>Hello ${name},</h2>
-              <p>You requested an OTP for your MedLink account. Use the code below to proceed:</p>
-              
-              <div class="otp-box">
-                <div class="otp-code">${otp}</div>
-              </div>
-              
-              <p><strong>This OTP is valid for 5 minutes.</strong></p>
-              <p>If you didn't request this code, please ignore this email or contact support if you have concerns.</p>
-              
-              <div class="footer">
-                <p>This is an automated email, please do not reply.</p>
-                <p>&copy; ${new Date().getFullYear()} MedLink. All rights reserved.</p>
-              </div>
-            </div>
-          </div>
-        </body>
-        </html>
-      `
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                    <div style="background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); padding: 32px 20px; text-align: center; color: white;">
+                        <h1 style="margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.025em;">🏥 MedLink</h1>
+                        <p style="margin: 8px 0 0; opacity: 0.9; font-size: 14px; font-weight: 500;">Digital Health Infrastructure</p>
+                    </div>
+                    <div style="padding: 40px 32px; background: #ffffff;">
+                        <h2 style="margin: 0; color: #1e293b; font-size: 20px; font-weight: 700;">Verify Your Identity</h2>
+                        <p style="margin: 16px 0; color: #64748b; font-size: 16px; line-height: 24px;">Hello ${name},</p>
+                        <p style="margin: 0; color: #64748b; font-size: 16px; line-height: 24px;">Use the verification code below to complete your action on MedLink. This code will expire in 5 minutes.</p>
+                        
+                        <div style="margin: 32px 0; padding: 24px; background: #f8fafc; border: 2px dashed #0ea5e9; border-radius: 12px; text-align: center;">
+                            <span style="font-family: 'Courier New', Courier, monospace; font-size: 42px; font-weight: 800; color: #0ea5e9; letter-spacing: 8px;">${otp}</span>
+                        </div>
+                        
+                        <p style="margin: 0; color: #94a3b8; font-size: 14px; text-align: center;">If you didn't request this, you can safely ignore this email.</p>
+                    </div>
+                    <div style="padding: 24px; background: #f1f5f9; text-align: center; color: #94a3b8; font-size: 12px;">
+                        <p style="margin: 0;">&copy; ${new Date().getFullYear()} MedLink Health Systems. All rights reserved.</p>
+                    </div>
+                </div>
+            `
         };
 
         const info = await emailTransporter.sendMail(mailOptions);
-        console.log(`✅ Email sent to ${email}: ${info.messageId}`);
-
-        return {
-            success: true,
-            messageId: info.messageId
-        };
+        console.log(`✅ Email Sent: ${info.messageId} to ${email}`);
+        return { success: true, messageId: info.messageId };
     } catch (error) {
-        console.error(`❌ Email Error to ${email}:`, error.message);
-        throw new Error(`Failed to send email: ${error.message}`);
+        console.error(`❌ Email Delivery Failed:`, {
+            error: error.message,
+            email: email
+        });
+        return { success: false, error: error.message };
     }
 };
 
@@ -168,18 +166,32 @@ const sendEmail = async (email, otp, name = 'User') => {
  */
 const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, name }) => {
     try {
-        // Generate OTP
-        const otp = generateOTP();
+        const queryConditions = [];
+        if (email) queryConditions.push({ email });
+        if (mobile) queryConditions.push({ mobile });
 
-        // Hash OTP before storing
+        if (queryConditions.length === 0) {
+            throw new Error('At least one identifier (email/mobile) must be provided.');
+        }
+
+        // 1. Check for cooldown (prevent spam)
+        const lastOTP = await OTPLog.findOne({
+            $or: queryConditions,
+            purpose,
+            createdAt: { $gt: new Date(Date.now() - 60 * 1000) } // 60s cooldown
+        }).sort({ createdAt: -1 });
+
+        if (lastOTP) {
+            throw new Error('Please wait 60 seconds before requesting a new OTP.');
+        }
+
+        // 2. Generate and Store OTP
+        const otp = generateOTP();
         const salt = await bcrypt.genSalt(10);
         const hashedOTP = await bcrypt.hash(otp, salt);
-
-        // Calculate expiry time (5 minutes from now)
         const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES) || 5;
         const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
 
-        // Save OTP to database
         const otpLog = await OTPLog.create({
             email,
             mobile,
@@ -189,95 +201,53 @@ const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, na
             maxAttempts: parseInt(process.env.OTP_MAX_ATTEMPTS) || 3
         });
 
-        // Send OTP via SMS, WhatsApp and Email concurrently
+        // 3. Send via all channels concurrently
         const results = await Promise.allSettled([
-            sendSMS(mobile, otp),
-            sendWhatsApp(mobile, otp),
-            sendEmail(email, otp, name)
+            mobile ? sendSMS(mobile, otp) : Promise.resolve({ success: false, error: 'No mobile provided' }),
+            mobile ? sendWhatsApp(mobile, otp) : Promise.resolve({ success: false, error: 'No mobile provided' }),
+            email ? sendEmail(email, otp, name) : Promise.resolve({ success: false, error: 'No email provided' })
         ]);
 
-        // Log notifications
+        // 4. Record details for audit/debugging
         const notifications = [];
+        results.forEach((result, index) => {
+            const types = ['sms', 'whatsapp', 'email'];
+            const type = types[index];
+            const isFulfilled = result.status === 'fulfilled';
+            const isSuccess = isFulfilled && result.value.success === true;
 
-        // SMS Notification
-        if (results[0].status === 'fulfilled' && results[0].value.success) {
-            notifications.push({
-                recipient: { model: recipientModel, id: recipientId, mobile },
-                type: 'sms',
-                content: `Your MedLink OTP is ${otp}`,
-                purpose: 'otp',
-                status: 'sent',
-                sentAt: new Date()
-            });
-        } else {
-            notifications.push({
-                recipient: { model: recipientModel, id: recipientId, mobile },
-                type: 'sms',
-                content: `Your MedLink OTP is ${otp}`,
-                purpose: 'otp',
-                status: 'failed',
-                failureReason: results[0].status === 'fulfilled' ? results[0].value.error : results[0].reason?.message
-            });
+            // Only log if it was actually attempted
+            if (isFulfilled && result.value.error !== 'No mobile provided' && result.value.error !== 'No email provided') {
+                notifications.push({
+                    recipient: {
+                        model: recipientModel,
+                        id: recipientId,
+                        mobile: (type === 'email' ? undefined : mobile),
+                        email: (type === 'email' ? email : undefined)
+                    },
+                    type: type,
+                    content: `Your MedLink OTP is ******`, // Masked for security
+                    purpose: 'otp',
+                    status: isSuccess ? 'sent' : 'failed',
+                    sentAt: isSuccess ? new Date() : undefined,
+                    failureReason: isSuccess ? undefined : (isFulfilled ? result.value.error : result.reason?.message)
+                });
+            }
+        });
+
+        if (notifications.length > 0) {
+            await Notification.insertMany(notifications);
         }
-
-        // WhatsApp Notification
-        if (results[1].status === 'fulfilled' && results[1].value.success) {
-            notifications.push({
-                recipient: { model: recipientModel, id: recipientId, mobile },
-                type: 'whatsapp',
-                content: `Your MedLink OTP is ${otp}`,
-                purpose: 'otp',
-                status: 'sent',
-                sentAt: new Date()
-            });
-        } else {
-            notifications.push({
-                recipient: { model: recipientModel, id: recipientId, mobile },
-                type: 'whatsapp',
-                content: `Your MedLink OTP is ${otp}`,
-                purpose: 'otp',
-                status: 'failed',
-                failureReason: results[1].status === 'fulfilled' ? results[1].value.error : results[1].reason?.message
-            });
-        }
-
-        // Email Notification
-        if (results[2].status === 'fulfilled' && results[2].value.success) {
-            notifications.push({
-                recipient: { model: recipientModel, id: recipientId, email },
-                type: 'email',
-                subject: 'Your MedLink OTP Code',
-                content: `Your MedLink OTP is ${otp}`,
-                purpose: 'otp',
-                status: 'sent',
-                sentAt: new Date()
-            });
-        } else {
-            notifications.push({
-                recipient: { model: recipientModel, id: recipientId, email },
-                type: 'email',
-                subject: 'Your MedLink OTP Code',
-                content: `Your MedLink OTP is ${otp}`,
-                purpose: 'otp',
-                status: 'failed',
-                failureReason: results[2].status === 'fulfilled' ? results[2].value.error : results[2].reason?.message
-            });
-        }
-
-        // Save notifications
-        await Notification.insertMany(notifications);
-
-        console.log(`✅ OTP sent to ${email} and ${mobile} for ${purpose}`);
 
         return {
             success: true,
-            message: 'OTP sent successfully to email and mobile',
+            message: 'OTP sent successfully',
             expiresAt,
             otpId: otpLog._id
         };
     } catch (error) {
-        console.error('❌ Send OTP Error:', error);
-        throw new Error(`Failed to send OTP: ${error.message}`);
+        console.error('❌ sendOTP Master Error:', error.message);
+        throw error; // Rethrow to let controller handle it
     }
 };
 
@@ -286,58 +256,45 @@ const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, na
  */
 const verifyOTP = async ({ email, mobile, otp, purpose }) => {
     try {
-        // Find the latest non-verified OTP for this email/mobile and purpose
+        // Find latest valid OTP
         const otpLog = await OTPLog.findOne({
-            $or: [{ email }, { mobile }],
+            $or: [
+                email ? { email } : null,
+                mobile ? { mobile } : null
+            ].filter(Boolean),
             purpose,
             isVerified: false,
             expiresAt: { $gt: new Date() }
         }).sort({ createdAt: -1 });
 
         if (!otpLog) {
-            return {
-                success: false,
-                message: 'OTP expired or not found. Please request a new one.'
-            };
+            return { success: false, message: 'OTP expired or not found.' };
         }
 
-        // Check if max attempts exceeded
         if (otpLog.attempts >= otpLog.maxAttempts) {
-            return {
-                success: false,
-                message: `Maximum OTP verification attempts (${otpLog.maxAttempts}) exceeded. Please request a new OTP.`
-            };
+            return { success: false, message: 'Max attempts reached. Request a new OTP.' };
         }
 
-        // Increment attempts
         otpLog.attempts += 1;
-        await otpLog.save();
 
-        // Compare OTP
         const isMatch = await bcrypt.compare(otp, otpLog.otp);
-
         if (!isMatch) {
-            const remainingAttempts = otpLog.maxAttempts - otpLog.attempts;
+            await otpLog.save();
             return {
                 success: false,
-                message: `Invalid OTP. ${remainingAttempts} attempt(s) remaining.`
+                message: `Invalid OTP. ${otpLog.maxAttempts - otpLog.attempts} attempts left.`
             };
         }
 
-        // Mark as verified
         otpLog.isVerified = true;
         otpLog.verifiedAt = new Date();
         await otpLog.save();
 
-        console.log(`✅ OTP verified successfully for ${email || mobile}`);
-
-        return {
-            success: true,
-            message: 'OTP verified successfully'
-        };
+        console.log(`✅ OTP Verified for ${email || mobile}`);
+        return { success: true, message: 'OTP verified successfully.' };
     } catch (error) {
-        console.error('❌ Verify OTP Error:', error);
-        throw new Error(`Failed to verify OTP: ${error.message}`);
+        console.error('❌ verifyOTP Error:', error.message);
+        throw error;
     }
 };
 
@@ -346,3 +303,4 @@ module.exports = {
     verifyOTP,
     generateOTP
 };
+

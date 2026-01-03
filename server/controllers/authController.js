@@ -4,6 +4,7 @@ const Admin = require('../models/Admin');
 const { sendOTP, verifyOTP } = require('../services/otpService');
 const { generateToken } = require('../middleware/auth');
 const { createAuditLog } = require('../middleware/auditLogger');
+const { normalizePhoneNumber } = require('../utils/phoneUtils');
 const cloudinary = require('../config/cloudinary');
 
 /**
@@ -23,8 +24,11 @@ const registerUser = async (req, res) => {
             });
         }
 
+        const normalizedMobile = normalizePhoneNumber(mobile);
+        const normalizedEmail = email.toLowerCase();
+
         // Check if user already exists
-        const userExists = await User.findOne({ $or: [{ email }, { mobile }] });
+        const userExists = await User.findOne({ $or: [{ email: normalizedEmail }, { mobile: normalizedMobile }] });
         if (userExists) {
             return res.status(400).json({
                 success: false,
@@ -35,15 +39,15 @@ const registerUser = async (req, res) => {
         // Create user (password will be hashed by pre-save middleware)
         const user = await User.create({
             name,
-            email,
-            mobile,
+            email: normalizedEmail,
+            mobile: normalizedMobile,
             password
         });
 
         // Send OTP for verification
         const otpResult = await sendOTP({
-            email,
-            mobile,
+            email: normalizedEmail,
+            mobile: normalizedMobile,
             purpose: 'registration',
             recipientId: user._id,
             recipientModel: 'User',
@@ -111,8 +115,11 @@ const registerDoctor = async (req, res) => {
         }
 
         // Check if doctor already exists
+        const normalizedMobile = normalizePhoneNumber(mobile);
+        const normalizedEmail = email.toLowerCase();
+
         const doctorExists = await Doctor.findOne({
-            $or: [{ email }, { mobile }, { medicalRegistrationNumber }]
+            $or: [{ email: normalizedEmail }, { mobile: normalizedMobile }, { medicalRegistrationNumber }]
         });
 
         if (doctorExists) {
@@ -167,8 +174,8 @@ const registerDoctor = async (req, res) => {
         // Create doctor
         const doctor = await Doctor.create({
             name,
-            email,
-            mobile,
+            email: normalizedEmail,
+            mobile: normalizedMobile,
             password,
             medicalRegistrationNumber,
             specialization,
@@ -183,8 +190,8 @@ const registerDoctor = async (req, res) => {
 
         // Send OTP for verification
         const otpResult = await sendOTP({
-            email,
-            mobile,
+            email: normalizedEmail,
+            mobile: normalizedMobile,
             purpose: 'registration',
             recipientId: doctor._id,
             recipientModel: 'Doctor',
@@ -242,14 +249,17 @@ const verifyOTPHandler = async (req, res) => {
             });
         }
 
-        if (!email && !mobile) {
+        const normalizedEmail = email ? email.toLowerCase() : undefined;
+        const normalizedMobile = mobile ? normalizePhoneNumber(mobile) : undefined;
+
+        if (!normalizedEmail && !normalizedMobile) {
             return res.status(400).json({
                 success: false,
                 message: 'Please provide email or mobile'
             });
         }
 
-        const result = await verifyOTP({ email, mobile, otp, purpose });
+        const result = await verifyOTP({ email: normalizedEmail, mobile: normalizedMobile, otp, purpose });
 
         if (!result.success) {
             return res.status(400).json(result);
@@ -257,13 +267,13 @@ const verifyOTPHandler = async (req, res) => {
 
         // Update user/doctor verification status
         if (purpose === 'registration') {
-            if (email) {
-                await User.updateOne({ email }, { isEmailVerified: true });
-                await Doctor.updateOne({ email }, { isEmailVerified: true });
+            if (normalizedEmail) {
+                await User.updateOne({ email: normalizedEmail }, { isEmailVerified: true });
+                await Doctor.updateOne({ email: normalizedEmail }, { isEmailVerified: true });
             }
-            if (mobile) {
-                await User.updateOne({ mobile }, { isMobileVerified: true });
-                await Doctor.updateOne({ mobile }, { isMobileVerified: true });
+            if (normalizedMobile) {
+                await User.updateOne({ mobile: normalizedMobile }, { isMobileVerified: true });
+                await Doctor.updateOne({ mobile: normalizedMobile }, { isMobileVerified: true });
             }
         }
 
@@ -287,9 +297,10 @@ const verifyOTPHandler = async (req, res) => {
  */
 const resendOTP = async (req, res) => {
     try {
-        const { email, mobile, purpose } = req.body;
+        const normalizedEmail = email ? email.toLowerCase() : undefined;
+        const normalizedMobile = mobile ? normalizePhoneNumber(mobile) : undefined;
 
-        if (!email && !mobile) {
+        if (!normalizedEmail && !normalizedMobile) {
             return res.status(400).json({
                 success: false,
                 message: 'Please provide email or mobile'
@@ -304,8 +315,8 @@ const resendOTP = async (req, res) => {
         }
 
         // Find user or doctor
-        let user = await User.findOne({ $or: [{ email }, { mobile }] });
-        let doctor = await Doctor.findOne({ $or: [{ email }, { mobile }] });
+        let user = await User.findOne({ $or: [{ email: normalizedEmail }, { mobile: normalizedMobile }] });
+        let doctor = await Doctor.findOne({ $or: [{ email: normalizedEmail }, { mobile: normalizedMobile }] });
 
         const entity = user || doctor;
         if (!entity) {
@@ -346,17 +357,23 @@ const resendOTP = async (req, res) => {
  */
 const loginUser = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email: identifier, password } = req.body;
 
-        if (!email || !password) {
+        if (!identifier || !password) {
             return res.status(400).json({
                 success: false,
-                message: 'Please provide email and password'
+                message: 'Please provide email/mobile and password'
             });
         }
 
+        // Handle both email and mobile login
+        const isEmail = identifier.includes('@');
+        const loginQuery = isEmail
+            ? { email: identifier.toLowerCase() }
+            : { mobile: normalizePhoneNumber(identifier) };
+
         // Find user with password
-        const user = await User.findOne({ email }).select('+password');
+        const user = await User.findOne(loginQuery).select('+password');
 
         if (!user) {
             return res.status(401).json({
@@ -437,17 +454,23 @@ const loginUser = async (req, res) => {
  */
 const loginDoctor = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email: identifier, password } = req.body;
 
-        if (!email || !password) {
+        if (!identifier || !password) {
             return res.status(400).json({
                 success: false,
-                message: 'Please provide email and password'
+                message: 'Please provide email/mobile and password'
             });
         }
 
+        // Handle both email and mobile login
+        const isEmail = identifier.includes('@');
+        const loginQuery = isEmail
+            ? { email: identifier.toLowerCase() }
+            : { mobile: normalizePhoneNumber(identifier) };
+
         // Find doctor with password
-        const doctor = await Doctor.findOne({ email }).select('+password');
+        const doctor = await Doctor.findOne(loginQuery).select('+password');
 
         if (!doctor) {
             return res.status(401).json({
@@ -531,17 +554,23 @@ const loginDoctor = async (req, res) => {
  */
 const loginAdmin = async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email: identifier, password } = req.body;
 
-        if (!email || !password) {
+        if (!identifier || !password) {
             return res.status(400).json({
                 success: false,
                 message: 'Please provide email and password'
             });
         }
 
+        // Handle both email and mobile login
+        const isEmail = identifier.includes('@');
+        const loginQuery = isEmail
+            ? { email: identifier.toLowerCase() }
+            : { mobile: normalizePhoneNumber(identifier) };
+
         // Find admin with password
-        const admin = await Admin.findOne({ email }).select('+password');
+        const admin = await Admin.findOne(loginQuery).select('+password');
 
         if (!admin) {
             return res.status(401).json({
@@ -601,23 +630,25 @@ const loginAdmin = async (req, res) => {
  */
 const requestLoginOTP = async (req, res) => {
     try {
-        const { email, mobile, role } = req.body;
+        const { email: identifier, mobile, role } = req.body;
 
-        if (!email && !mobile) {
+        if (!identifier && !mobile) {
             return res.status(400).json({
                 success: false,
                 message: 'Please provide email or mobile'
             });
         }
 
+        const normalizedIdentifier = identifier ? (identifier.includes('@') ? identifier.toLowerCase() : normalizePhoneNumber(identifier)) : normalizePhoneNumber(mobile);
+
         // Find user based on role
         let user;
         if (role === 'user') {
-            user = await User.findOne({ $or: [{ email }, { mobile }] });
+            user = await User.findOne({ $or: [{ email: normalizedIdentifier }, { mobile: normalizedIdentifier }] });
         } else if (role === 'doctor') {
-            user = await Doctor.findOne({ $or: [{ email }, { mobile }] });
+            user = await Doctor.findOne({ $or: [{ email: normalizedIdentifier }, { mobile: normalizedIdentifier }] });
         } else if (role === 'admin') {
-            user = await Admin.findOne({ email });
+            user = await Admin.findOne({ email: normalizedIdentifier });
         }
 
         if (!user) {
@@ -658,7 +689,7 @@ const requestLoginOTP = async (req, res) => {
  */
 const loginWithOTP = async (req, res) => {
     try {
-        const { email, mobile, otp, role } = req.body;
+        const { email: identifier, mobile, otp, role } = req.body;
 
         if (!otp) {
             return res.status(400).json({
@@ -667,8 +698,16 @@ const loginWithOTP = async (req, res) => {
             });
         }
 
+        const normalizedIdentifier = identifier ? (identifier.includes('@') ? identifier.toLowerCase() : normalizePhoneNumber(identifier)) : normalizePhoneNumber(mobile);
+
         // Verify OTP
-        const verification = await verifyOTP({ email, mobile, otp, purpose: 'login' });
+        const verification = await verifyOTP({
+            email: identifier?.includes('@') ? normalizedIdentifier : undefined,
+            mobile: !identifier?.includes('@') ? normalizedIdentifier : undefined,
+            otp,
+            purpose: 'login'
+        });
+
         if (!verification.success) {
             return res.status(400).json(verification);
         }
@@ -676,11 +715,11 @@ const loginWithOTP = async (req, res) => {
         // Find user based on role
         let user;
         if (role === 'user') {
-            user = await User.findOne({ $or: [{ email }, { mobile }] });
+            user = await User.findOne({ $or: [{ email: normalizedIdentifier }, { mobile: normalizedIdentifier }] });
         } else if (role === 'doctor') {
-            user = await Doctor.findOne({ $or: [{ email }, { mobile }] });
+            user = await Doctor.findOne({ $or: [{ email: normalizedIdentifier }, { mobile: normalizedIdentifier }] });
         } else if (role === 'admin') {
-            user = await Admin.findOne({ email });
+            user = await Admin.findOne({ email: normalizedIdentifier });
         }
 
         if (!user) {
