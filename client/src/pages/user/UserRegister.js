@@ -100,23 +100,35 @@ const UserRegister = () => {
             });
 
             if (res.success) {
-                const loginRes = await login({
-                    email: formData.email,
-                    password: formData.password
-                }, 'user');
+                toast.success('Identity Verified.');
 
-                if (loginRes.success) {
-                    toast.success('Identity Activated. Welcome to MedLink.');
-                    navigate('/dashboard');
-                } else {
-                    toast.error('Identity verified, but login failed. Please sign in manually.');
+                // Attempt auto-login
+                try {
+                    const loginRes = await login({
+                        email: formData.email,
+                        password: formData.password
+                    }, 'user');
+
+                    if (loginRes.success) {
+                        toast.success('Welcome to MedLink.');
+                        navigate('/dashboard');
+                    } else {
+                        // Login failed but verification succeeded
+                        console.warn('Auto-login failed:', loginRes.message);
+                        toast.info('Verification successful. Please login to access your account.');
+                        navigate('/login');
+                    }
+                } catch (loginErr) {
+                    console.error('Auto-login error:', loginErr);
+                    toast.info('Verification successful. Please login manually.');
                     navigate('/login');
                 }
             } else {
-                toast.error(res.message);
+                toast.error(res.message || 'Invalid code');
             }
         } catch (error) {
-            toast.error('Verification failed');
+            console.error('Verification flow error:', error);
+            toast.error(error.response?.data?.message || 'Verification failed');
         } finally {
             setLoading(false);
         }

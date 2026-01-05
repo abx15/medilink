@@ -68,6 +68,23 @@ const HealthCard = () => {
         }
     };
 
+    const handleGenerateCard = async () => {
+        setLoading(true);
+        try {
+            const res = await API.post('/user/health-card/generate');
+            if (res.data.success) {
+                toast.success(res.data.message || 'Health Card Generated!');
+                fetchCardData(); // Reload data
+            } else {
+                toast.error(res.data.message);
+                setLoading(false);
+            }
+        } catch (error) {
+            toast.error(error.response?.data?.message || 'Failed to generate card');
+            setLoading(false);
+        }
+    };
+
     if (loading) return <Layout><LoadingSpinner size="large" className="min-h-[60vh]" /></Layout>;
 
     if (!card) return (
@@ -76,14 +93,14 @@ const HealthCard = () => {
                 <AlertCircle className="mx-auto text-amber-500 mb-6" size={64} />
                 <h2 className="text-3xl font-black text-slate-800 mb-4">Health Card Not Found</h2>
                 <p className="text-slate-500 max-w-md mx-auto mb-8">
-                    Your digital health card is generated automatically once your profile is verified.
-                    Please ensure your profile information is complete.
+                    Your digital health card is ready to be generated.
+                    Click below to create your unique identity.
                 </p>
                 <button
-                    onClick={() => window.location.reload()}
+                    onClick={handleGenerateCard}
                     className="btn-primary"
                 >
-                    Check Eligibility
+                    Generate Health Card
                 </button>
             </div>
         </Layout>

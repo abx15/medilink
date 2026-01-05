@@ -21,6 +21,13 @@ const QRScanner = () => {
     }, []);
 
     const startScanner = async () => {
+        // Enforce HTTPS check
+        if (!window.isSecureContext) {
+            setError("Camera access requires a secure HTTPS connection. Please use a secure URL.");
+            setCameraState('denied');
+            return;
+        }
+
         try {
             setCameraState('requested');
             setError(null);
@@ -52,9 +59,9 @@ const QRScanner = () => {
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                 setError("Hardware access denied. Please authorize camera permissions in system settings.");
             } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                setError("No optical sensor detected on this node.");
+                setError("No optical sensor detected. Ensure camera is available.");
             } else {
-                setError(`Protocol Error: ${err.message}. Ensure secure HTTPS link.`);
+                setError(`Protocol Error: ${err.message}.`);
             }
         }
     };

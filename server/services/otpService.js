@@ -88,7 +88,10 @@ const sendWhatsApp = async (mobile, otp) => {
             ? process.env.TWILIO_WHATSAPP_NUMBER
             : `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
 
+        // Ensure recipient number also has prefix if not present (handled by twilio usually but good to be explicit for creating the 'to' address)
         const to = `whatsapp:${normalizedMobile}`;
+
+        console.log(`⏳ Attempting WhatsApp to ${to} from ${from}`);
 
         const message = await twilioClient.messages.create({
             body: `Your MedLink verification code is: ${otp}. Valid for 5 minutes. Do not share this code.`,
@@ -96,14 +99,16 @@ const sendWhatsApp = async (mobile, otp) => {
             to: to
         });
 
-        console.log(`✅ WhatsApp Sent: ${message.sid} to ${to}`);
+        console.log(`✅ WhatsApp Sent: SID=${message.sid} Status=${message.status} To=${to}`);
         return { success: true, messageId: message.sid };
     } catch (error) {
         console.error(`❌ WhatsApp Delivery Failed:`, {
             error: error.message,
             code: error.code,
+            moreInfo: error.moreInfo,
             mobile: mobile
         });
+        // Do not throw, return failure so other channels can proceed
         return { success: false, error: error.message };
     }
 };
