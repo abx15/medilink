@@ -28,6 +28,19 @@ if (process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
     });
 }
 
+// --- DIAGNOSTIC LOGS ---
+console.log('\n=============================================');
+console.log('🔧 OTP Service Configuration Status');
+console.log('=============================================');
+console.log(`📱 Twilio Client:    ${twilioClient ? '✅ Loaded' : '❌ Not Configured (Check TWILIO_SID/TOKEN)'}`);
+console.log(`📞 WhatsApp Number:  ${process.env.TWILIO_WHATSAPP_NUMBER ? '✅ ' + process.env.TWILIO_WHATSAPP_NUMBER : '❌ Missing (TWILIO_WHATSAPP_NUMBER)'}`);
+console.log(`📧 Email Service:    ${emailTransporter ? '✅ Ready' : '❌ Not Configured (Check SMTP_USER/PASS)'}`);
+if (emailTransporter) {
+    console.log(`   - Host: ${process.env.SMTP_HOST}:${process.env.SMTP_PORT}`);
+    console.log(`   - User: ${process.env.SMTP_USER}`);
+}
+console.log('=============================================\n');
+
 /**
  * Generate a 6-digit OTP
  */
@@ -215,11 +228,18 @@ const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, na
 
         // 4. Record details for audit/debugging
         const notifications = [];
+        let successCount = 0;
+        const statusReport = {};
+
         results.forEach((result, index) => {
             const types = ['sms', 'whatsapp', 'email'];
             const type = types[index];
             const isFulfilled = result.status === 'fulfilled';
             const isSuccess = isFulfilled && result.value.success === true;
+
+            if (isSuccess) successCount++;
+
+            statusReport[type] = isSuccess ? 'sent' : 'failed';
 
             // Only log if it was actually attempted
             if (isFulfilled && result.value.error !== 'No mobile provided' && result.value.error !== 'No email provided') {
@@ -244,9 +264,17 @@ const sendOTP = async ({ email, mobile, purpose, recipientId, recipientModel, na
             await Notification.insertMany(notifications);
         }
 
+        // If no channel succeeded, consider it a failure (unless it's dev mode where we mock success)
+        const isDevMode = !process.env.TWILIO_ACCOUNT_SID && !process.env.SMTP_USER;
+
+        if (successCount === 0 && !isDevMode) {
+            throw new Error('Failed to deliver OTP via any channel. Please check server logs.');
+        }
+
         return {
             success: true,
-            message: 'OTP sent successfully',
+            message: isDevMode ? 'OTP generated (Dev Mode)' : 'OTP sent successfully',
+            report: statusReport,
             expiresAt,
             otpId: otpLog._id
         };
